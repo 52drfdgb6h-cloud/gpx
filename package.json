@@ -1,0 +1,8 @@
+{
+  "name": "gpx-trasy",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check app.js"
+  }
+}

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="sk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#103b39" />
+    <title>Trasy | GPX porovnanie</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="Trasy - domov">
+          <span class="brand-mark" aria-hidden="true">T</span>
+          <span>trasy</span>
+        </a>
+        <p class="topbar-note">Plán a skutočnosť, na jednej mape.</p>
+      </header>
+
+      <section class="workspace" aria-label="Porovnanie trás">
+        <div class="intro">
+          <p class="eyebrow">GPX route desk</p>
+          <h1>Kam si chcel ísť.<br />Kam si naozaj išiel.</h1>
+          <p class="lede">Načítaj plánovanú trasu zo Stravy a záznam z Garmin hodiniek. Súbory zostávajú iba v tomto prehliadači.</p>
+        </div>
+
+        <section class="imports" aria-label="Import GPX súborov">
+          <article class="import-card planned-card">
+            <div class="card-heading">
+              <span class="route-dot planned-dot" aria-hidden="true"></span>
+              <div>
+                <p class="card-kicker">01 / plán</p>
+                <h2>Strava</h2>
+              </div>
+              <button class="icon-button" type="button" data-clear="planned" aria-label="Odstrániť plánovanú trasu" title="Odstrániť trasu">×</button>
+            </div>
+            <label class="dropzone" for="planned-file" data-dropzone="planned">
+              <input id="planned-file" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" />
+              <span class="upload-symbol" aria-hidden="true">↑</span>
+              <span class="upload-title">Vyber GPX trasu</span>
+              <span class="upload-detail">alebo ju sem presuň</span>
+            </label>
+            <dl class="route-stats" data-stats="planned">
+              <div><dt>Názov</dt><dd>Čaká na import</dd></div>
+              <div><dt>Vzdialenosť</dt><dd>--</dd></div>
+              <div><dt>Body</dt><dd>--</dd></div>
+            </dl>
+          </article>
+
+          <article class="import-card actual-card">
+            <div class="card-heading">
+              <span class="route-dot actual-dot" aria-hidden="true"></span>
+              <div>
+                <p class="card-kicker">02 / skutočnosť</p>
+                <h2>Garmin</h2>
+              </div>
+              <button class="icon-button" type="button" data-clear="actual" aria-label="Odstrániť uskutočnenú trasu" title="Odstrániť trasu">×</button>
+            </div>
+            <label class="dropzone" for="actual-file" data-dropzone="actual">
+              <input id="actual-file" type="file" accept=".gpx,application/gpx+xml,application/xml,text/xml" />
+              <span class="upload-symbol" aria-hidden="true">↑</span>
+              <span class="upload-title">Vyber GPX záznam</span>
+              <span class="upload-detail">alebo ho sem presuň</span>
+            </label>
+            <button id="strava-import" class="strava-import" type="button">Pripojiť Stravu a importovať aktivity</button>
+            <dl class="route-stats" data-stats="actual">
+              <div><dt>Názov</dt><dd>Čaká na import</dd></div>
+              <div><dt>Vzdialenosť</dt><dd>--</dd></div>
+              <div><dt>Body</dt><dd>--</dd></div>
+            </dl>
+          </article>
+        </section>
+        <p id="import-message" class="import-message" role="status" aria-live="polite" hidden></p>
+
+        <section class="archive-section" aria-labelledby="archive-title">
+          <div class="archive-heading">
+            <div>
+              <p class="eyebrow">Databáza trás</p>
+              <h2 id="archive-title">Uložené importy</h2>
+            </div>
+            <p id="archive-count" class="archive-count">0 trás</p>
+          </div>
+          <div class="archive-controls">
+            <label class="search-field" for="route-search">
+              <span aria-hidden="true">⌕</span>
+              <input id="route-search" type="search" placeholder="Hľadať podľa názvu trasy" />
+            </label>
+            <form id="city-search-form" class="city-search" role="search">
+              <label class="search-field" for="city-search">
+                <span aria-hidden="true">⌖</span>
+                <input id="city-search" type="search" placeholder="Overiť mesto, napr. Malacky" />
+              </label>
+              <button class="city-search-button" type="submit">Vyhľadaj</button>
+            </form>
+            <div class="filter-group" aria-label="Filter typu trasy">
+              <button class="filter-button is-active" type="button" data-filter="all">Všetky</button>
+              <button class="filter-button" type="button" data-filter="planned">Plánované</button>
+              <button class="filter-button" type="button" data-filter="actual">Uskutočnené</button>
+            </div>
+          </div>
+          <p id="city-search-result" class="city-search-result" hidden></p>
+          <ul id="route-results" class="route-results" aria-live="polite"></ul>
+        </section>
+
+        <section id="comparison-section" class="comparison-section" aria-labelledby="comparison-title" hidden>
+          <div class="comparison-heading">
+            <div>
+              <p class="eyebrow">Uskutočnené trasy</p>
+              <h2 id="comparison-title">Porovnanie aktivít</h2>
+            </div>
+            <p id="comparison-count" class="archive-count">0 vybraných</p>
+          </div>
+          <div class="comparison-table-wrap">
+            <table class="comparison-table">
+              <thead><tr><th><button class="sort-button" type="button" data-sort="title">Trasa</button></th><th><button class="sort-button" type="button" data-sort="activityDate">Dátum</button></th><th><button class="sort-button" type="button" data-sort="movingSeconds">Čas pohybu</button></th><th><button class="sort-button" type="button" data-sort="totalSeconds">Čas aktivity</button></th><th><button class="sort-button" type="button" data-sort="movingSpeedKmh">Priemerná rýchlosť pohybu</button></th><th><button class="sort-button" type="button" data-sort="totalSpeedKmh">Celková rýchlosť</button></th><th><button class="sort-button" type="button" data-sort="averageHeartRate">Priemerný tep</button></th><th><button class="sort-button" type="button" data-sort="maximumHeartRate">Max. tep</button></th></tr></thead>
+              <tbody id="comparison-results"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="map-section" aria-label="Mapa importovaných trás">
+          <div class="map-toolbar">
+            <div>
+              <p class="eyebrow">Porovnanie</p>
+              <h2>Mapa trasy</h2>
+            </div>
+            <div class="map-actions">
+              <button id="reset-comparison" class="reset-button" type="button">Reset porovnania</button>
+              <button id="fit-routes" class="fit-button" type="button" title="Prispôsobiť zobrazenie všetkým trasám">⌗ <span>Prispôsobiť</span></button>
+            </div>
+          </div>
+          <div id="route-map" class="route-map" role="img" aria-label="Vizualizácia importovaných GPX trás">
+            <canvas id="map-canvas"></canvas>
+            <div class="map-empty" id="map-empty">
+              <span>⌁</span>
+              <p>Importuj aspoň jednu GPX trasu.</p>
+            </div>
+            <div class="map-legend" id="map-legend" hidden>
+            </div>
+          </div>
+          <p class="status-message" id="status-message" role="status" aria-live="polite">Pripravené na import.</p>
+        </section>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
