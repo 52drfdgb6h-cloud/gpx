@@ -32,3 +32,5 @@ Uskutočnené trasy možno v archíve označiť checkboxom pre porovnanie. Tabu�
 3. Trasy sa zobrazia na spoločnej schématickej mape: zelená je plán, koralová je uskutočnená aktivita.
 
 GPX súbory aj databáza sa spracúvajú lokálne v prehliadači a nikam sa neodosielajú.
+
+test
