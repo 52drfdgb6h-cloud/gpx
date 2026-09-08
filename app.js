@@ -255,11 +255,11 @@ async function importStravaActivities() {
     const status = await statusResponse.json();
     if (!status.connected) {
       if (!status.configured) throw new Error("Backend nie je nakonfigurovaný. Doplň STRAVA_CLIENT_ID a STRAVA_CLIENT_SECRET do .env.");
-      window.location.assign("/api/strava/authorize"); return;
+      window.location.assign("/api/strava/authorize?next=activities"); return;
     }
     const startResponse = await fetch("/api/strava/import", { method: "POST" });
     const startResult = await startResponse.json();
-    if (startResponse.status === 401) { window.location.assign("/api/strava/authorize"); return; }
+    if (startResponse.status === 401) { window.location.assign("/api/strava/authorize?next=activities"); return; }
     if (!startResponse.ok) throw new Error(startResult.error || "Strava import zlyhal.");
     let progress = startResult;
     while (progress.status === "running") {
@@ -292,6 +292,34 @@ async function importStravaActivities() {
   } finally { button.disabled = false; }
 }
 
+async function importStravaRoutes() {
+  const button = document.querySelector("#strava-routes-import");
+  button.disabled = true;
+  try {
+    const statusResponse = await fetch("/api/strava/status");
+    const status = await statusResponse.json();
+    if (!status.connected) { window.location.assign("/api/strava/authorize?next=routes"); return; }
+    const startResponse = await fetch("/api/strava/routes/import", { method: "POST" });
+    let progress = await startResponse.json();
+    if (startResponse.status === 401) { window.location.assign("/api/strava/authorize?next=routes"); return; }
+    if (!startResponse.ok) throw new Error(progress.error || "Strava routes import zlyhal.");
+    while (progress.status === "running") {
+      setImportMessage(progress.total ? `Strava routes: importovaných ${progress.processed} z ${progress.total} (${progress.imported} nových, ${progress.duplicates} už uložených).` : "Strava: načítavam zoznam uložených routes...");
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      const progressResponse = await fetch("/api/strava/routes/import");
+      progress = await progressResponse.json();
+      if (!progressResponse.ok) throw new Error(progress.error || "Strava routes import zlyhal.");
+    }
+    if (progress.status === "error") throw new Error(progress.error || "Strava routes import zlyhal.");
+    await loadStoredRoutes();
+    const message = `Zo Stravy bolo importovaných ${progress.imported} z ${progress.total} uložených routes.${progress.duplicates ? ` ${progress.duplicates} už bolo v databáze.` : ""}${progress.skipped ? ` ${progress.skipped} sa nepodarilo načítať.` : ""}`;
+    setImportMessage(message, progress.skipped > 0); setStatus(message);
+  } catch (error) {
+    const message = `Strava routes import sa nepodaril: ${error.message}`;
+    setImportMessage(message, true); setStatus(message);
+  } finally { button.disabled = false; }
+}
+
 for (const type of ["planned", "actual"]) {
   const input = document.querySelector(`#${type}-file`); const dropzone = document.querySelector(`[data-dropzone="${type}"]`);
   input.addEventListener("change", () => importFile(type, input.files[0]));
@@ -302,6 +330,7 @@ for (const type of ["planned", "actual"]) {
 }
 document.querySelector("#fit-routes").addEventListener("click", drawRoutes);
 document.querySelector("#strava-import").addEventListener("click", importStravaActivities);
+document.querySelector("#strava-routes-import").addEventListener("click", importStravaRoutes);
 document.querySelector("#reset-comparison").addEventListener("click", () => { mapRoutes.length = 0; drawRoutes(); renderStoredRoutes(); setStatus("Porovnanie bolo resetované."); });
 routeSearch.addEventListener("input", renderStoredRoutes);
 citySearchForm.addEventListener("submit", findRoutesInCity);
@@ -311,8 +340,11 @@ document.querySelectorAll("[data-sort]").forEach((button) => button.addEventList
 window.addEventListener("resize", drawRoutes);
 drawRoutes();
 loadStoredRoutes();
-if (new URLSearchParams(window.location.search).get("strava") === "connected") {
+const urlParameters = new URLSearchParams(window.location.search);
+if (urlParameters.get("strava") === "connected") {
+  const nextImport = urlParameters.get("next");
   window.history.replaceState({}, "", window.location.pathname);
-  setImportMessage("Strava je pripojená. Začínam sťahovať aktivity a GPS body.");
-  importStravaActivities();
+  if (nextImport === "activities") { setImportMessage("Strava je pripojená. Začínam sťahovať aktivity a GPS body."); importStravaActivities(); }
+  else if (nextImport === "routes") { setImportMessage("Strava je pripojená. Začínam importovať uložené routes."); importStravaRoutes(); }
+  else { setImportMessage("Strava je pripojená. Vyber import aktivít alebo uložených routes."); }
 }

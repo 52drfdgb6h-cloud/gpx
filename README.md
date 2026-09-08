@@ -4,7 +4,7 @@ Lokálna webová aplikácia na vizuálne porovnanie plánovanej GPX trasy zo Str
 
 ## Spustenie
 
-Pre lokálny GPX import stačí otvoriť `index.html` v prehliadači. Pre hromadný import Strava aktivít spustite `npm start` a otvorte `http://localhost:4173`.
+Spustite `npm start` a otvorte `http://localhost:4173`. Backend ukladá lokálne GPX importy aj Strava aktivity do PostgreSQL.
 
 ## Strava OAuth a hromadný import
 
@@ -17,7 +17,7 @@ Prístupový a obnovovací token sa po OAuth uložia iba do Windows Credential M
 
 ## Databáza a vyhľadávanie
 
-Každý úspešný import sa automaticky uloží do lokálnej databázy prehliadača (IndexedDB). Pred uložením aplikácia porovná SHA-256 odtlačok obsahu GPX aj stabilný podpis naparsovaných bodov trasy. Rovnaký súbor sa preto nedá importovať opakovane ani pod iným názvom; kontrola zahŕňa aj staršie importy. V časti **Uložené importy** možno trasy vyhľadávať podľa názvu alebo filtrovať na plánované a uskutočnené. Kliknutím na výsledok sa trasa načíta do porovnania a mapy.
+Každý úspešný import sa automaticky uloží do lokálnej PostgreSQL databázy. Konfigurácia bez hesla je v `.env` (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` a `PG_PSQL_PATH`); heslo je uložené iba vo Windows Credential Manageri pre službu `gpx-trasy-postgres` a kľúč `postgres`. Pred uložením aplikácia porovná SHA-256 odtlačok obsahu GPX aj stabilný podpis naparsovaných bodov trasy. Rovnaký súbor sa preto nedá importovať opakovane ani pod iným názvom; kontrola zahŕňa aj staršie importy. V časti **Uložené importy** možno trasy vyhľadávať podľa názvu alebo filtrovať na plánované a uskutočnené. Kliknutím na výsledok sa trasa načíta do porovnania a mapy.
 
 Každý uložený import sa dá vymazať tlačidlom `×` v pravom hornom rohu záznamu. Vymazanie ho odstráni z lokálnej databázy, z porovnania aj z mapy, ak je práve načítaný.
 
@@ -31,6 +31,6 @@ Uskutočnené trasy možno v archíve označiť checkboxom pre porovnanie. Tabu�
 2. Z Garmin Connect exportujte aktivitu vo formáte GPX a nahrajte ju do časti **Garmin**.
 3. Trasy sa zobrazia na spoločnej schématickej mape: zelená je plán, koralová je uskutočnená aktivita.
 
-GPX súbory aj databáza sa spracúvajú lokálne v prehliadači a nikam sa neodosielajú.
+GPX súbory a databáza sa spracúvajú lokálne na počítači a nikam sa neodosielajú.
 
 test
