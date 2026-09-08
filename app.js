@@ -91,7 +91,7 @@ async function loadStoredRoutes() {
 function renderStoredRoutes() {
   const searchTerm = routeSearch.value.trim().toLocaleLowerCase("sk-SK");
   const hasSearch = Boolean(searchTerm || matchingRouteIds);
-  const visibleRoutes = storedRoutes.filter((route) => (route.type !== "actual" || hasSearch) && (activeFilter === "all" || route.type === activeFilter) && route.title.toLocaleLowerCase("sk-SK").includes(searchTerm) && (!matchingRouteIds || matchingRouteIds.has(route.id)));
+  const visibleRoutes = storedRoutes.filter((route) => (route.type !== "actual" || hasSearch || activeFilter === "actual") && (activeFilter === "all" || route.type === activeFilter) && route.title.toLocaleLowerCase("sk-SK").includes(searchTerm) && (!matchingRouteIds || matchingRouteIds.has(route.id)));
   archiveCount.textContent = `${storedRoutes.length} ${storedRoutes.length === 1 ? "trasa" : storedRoutes.length < 5 ? "trasy" : "trás"}`;
   routeResults.replaceChildren();
   if (!visibleRoutes.length) { routeResults.innerHTML = `<li class="empty-results">${storedRoutes.length ? "Pre uskutočnené trasy zadaj názov alebo vyhľadaj mesto. Žiadna trasa nezodpovedá aktuálnemu vyhľadávaniu." : "Databáza je zatiaľ prázdna. Každý nový import sa sem uloží."}</li>`; return; }

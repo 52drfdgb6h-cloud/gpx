@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { URL, URLSearchParams } = require("node:url");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 function loadEnvironment() {
   const environmentPath = path.join(__dirname, ".env");
@@ -18,17 +18,17 @@ loadEnvironment();
 const port = Number(process.env.PORT || 4173);
 const publicFiles = new Map([["/", "index.html"], ["/index.html", "index.html"], ["/app.js", "app.js"], ["/styles.css", "styles.css"]]);
 const stravaProxy = process.env.STRAVA_PROXY || "http://proxy.p1at.s-group.cc:8080";
-const tokenPath = path.join(__dirname, ".strava-token.json");
-let token = loadToken() || (process.env.STRAVA_ACCESS_TOKEN ? { accessToken: process.env.STRAVA_ACCESS_TOKEN, expiresAt: 0, refreshToken: "" } : null);
+const credentialWrapperPath = path.join(__dirname, "strava-credentials.py");
+const pythonCommand = process.env.PYTHON || "py";
+const credentials = credentialRequest("get-client");
+let token = credentialRequest("get-token");
 let importJob = null;
 
-function loadToken() {
-  try { return JSON.parse(fs.readFileSync(tokenPath, "utf8")); } catch { return null; }
-}
-
-function saveToken() {
-  if (token?.refreshToken) fs.writeFileSync(tokenPath, JSON.stringify(token), { mode: 0o600 });
-  else if (fs.existsSync(tokenPath)) fs.rmSync(tokenPath);
+function credentialRequest(operation, payload) {
+  const result = spawnSync(pythonCommand, [credentialWrapperPath, operation], { input: payload ? JSON.stringify(payload) : undefined, encoding: "utf8", windowsHide: true });
+  if (result.error) throw new Error(`Strava Credential Manager wrapper sa nedá spustiť: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(result.stderr.trim() || "Strava Credential Manager wrapper zlyhal.");
+  return result.stdout.trim() ? JSON.parse(result.stdout) : null;
 }
 
 function sendJson(response, status, body) {
@@ -71,9 +71,9 @@ async function accessToken() {
   if (!token) throw new Error("Strava nie je pripojená. Najprv povoľ prístup.");
   if (token.expiresAt && token.expiresAt <= Math.floor(Date.now() / 1000) + 60) {
     if (!token.refreshToken) throw new Error("Strava token vypršal. Pripoj Stravu znovu.");
-    const refreshed = await formRequest({ client_id: process.env.STRAVA_CLIENT_ID, client_secret: process.env.STRAVA_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: token.refreshToken });
+    const refreshed = await formRequest({ client_id: credentials.clientId, client_secret: credentials.clientSecret, grant_type: "refresh_token", refresh_token: token.refreshToken });
     token = { accessToken: refreshed.access_token, refreshToken: refreshed.refresh_token, expiresAt: refreshed.expires_at };
-    saveToken();
+    credentialRequest("set-token", token);
   }
   return token.accessToken;
 }
@@ -132,7 +132,7 @@ function startImportJob() {
   if (importJob?.status === "running") return importJobStatus();
   importJob = { status: "running", total: 0, processed: 0, imported: 0, skipped: 0, result: null, error: null };
   importActivities(importJob).then((result) => { importJob.result = result; importJob.status = "complete"; }).catch((error) => {
-    if (/\b401\b|unauthorized/i.test(error.message)) { token = null; saveToken(); }
+    if (/\b401\b|unauthorized/i.test(error.message)) { token = null; credentialRequest("clear-token"); }
     importJob.error = error.message; importJob.status = "error";
   });
   return importJobStatus();
@@ -141,20 +141,19 @@ function startImportJob() {
 http.createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   try {
-    if (requestUrl.pathname === "/api/strava/status") return sendJson(response, 200, { connected: Boolean(token), configured: Boolean(process.env.STRAVA_CLIENT_ID && process.env.STRAVA_CLIENT_SECRET) });
+    if (requestUrl.pathname === "/api/strava/status") return sendJson(response, 200, { connected: Boolean(token), configured: true });
     if (requestUrl.pathname === "/api/strava/authorize") {
-      if (!process.env.STRAVA_CLIENT_ID || !process.env.STRAVA_CLIENT_SECRET) return sendJson(response, 500, { error: "V .env chýba STRAVA_CLIENT_ID alebo STRAVA_CLIENT_SECRET." });
       const callbackUrl = `http://${request.headers.host}/api/strava/callback`;
       const authorizationUrl = new URL("https://www.strava.com/oauth/authorize");
-      authorizationUrl.search = new URLSearchParams({ client_id: process.env.STRAVA_CLIENT_ID, redirect_uri: callbackUrl, response_type: "code", approval_prompt: "auto", scope: "read,activity:read_all" }).toString();
+      authorizationUrl.search = new URLSearchParams({ client_id: credentials.clientId, redirect_uri: callbackUrl, response_type: "code", approval_prompt: "auto", scope: "read,activity:read_all" }).toString();
       response.writeHead(302, { Location: authorizationUrl }); return response.end();
     }
     if (requestUrl.pathname === "/api/strava/callback") {
       if (!requestUrl.searchParams.get("code")) return sendJson(response, 400, { error: "Strava OAuth neposlala autorizačný kód." });
       const callbackUrl = `http://${request.headers.host}/api/strava/callback`;
-      const exchanged = await formRequest({ client_id: process.env.STRAVA_CLIENT_ID, client_secret: process.env.STRAVA_CLIENT_SECRET, code: requestUrl.searchParams.get("code"), grant_type: "authorization_code", redirect_uri: callbackUrl });
+      const exchanged = await formRequest({ client_id: credentials.clientId, client_secret: credentials.clientSecret, code: requestUrl.searchParams.get("code"), grant_type: "authorization_code", redirect_uri: callbackUrl });
       token = { accessToken: exchanged.access_token, refreshToken: exchanged.refresh_token, expiresAt: exchanged.expires_at };
-      saveToken();
+      credentialRequest("set-token", token);
       response.writeHead(302, { Location: "/?strava=connected" }); return response.end();
     }
     if (requestUrl.pathname === "/api/strava/import" && request.method === "POST") return sendJson(response, 202, startImportJob());
@@ -171,7 +170,7 @@ http.createServer(async (request, response) => {
     sendJson(response, 404, { error: "Nenájdené." });
   } catch (error) {
     const isUnauthorized = /\b401\b|unauthorized/i.test(error.message);
-    if (isUnauthorized) { token = null; saveToken(); }
+    if (isUnauthorized) { token = null; credentialRequest("clear-token"); }
     sendJson(response, isUnauthorized ? 401 : 502, { error: error.message });
   }
 }).listen(port, () => console.log(`Trasy backend beží na http://localhost:${port}`));

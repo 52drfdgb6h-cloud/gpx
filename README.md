@@ -8,12 +8,12 @@ Pre lokálny GPX import stačí otvoriť `index.html` v prehliadači. Pre hromad
 
 ## Strava OAuth a hromadný import
 
-1. Skopírujte `.env.example` ako `.env` a doplňte `STRAVA_CLIENT_ID` a `STRAVA_CLIENT_SECRET`. Súbor `.env` je ignorovaný a nepatrí do zdrojového kódu.
+1. Uložte `client_id` a `client_secret` pre službu `strava` do Windows Credential Managera. Backend ich načíta cez Python balík `keyring`; `.env` neobsahuje Strava poverenia.
 2. V Strava API aplikácii nastavte `Authorization Callback Domain` na `localhost`.
 3. Spustite `npm start`, otvorte `http://localhost:4173` a kliknite na **Pripojiť Stravu a importovať aktivity**.
 4. Po povolení oprávnenia backend stránkuje Strava aktivity, načíta ich GPS streamy a prehliadač ich uloží medzi uskutočnené aktivity v IndexedDB.
 
-Prístupový a obnovovací token sa po OAuth uložia iba lokálne do ignorovaného `.strava-token.json`, takže reštart backendu pripojenie nepreruší. Voliteľný `STRAVA_ACCESS_TOKEN` v `.env` umožní jednorazový import bez OAuth, ale pri expirácii ho treba nahradiť alebo znovu pripojiť Stravu. Na firemnom Windows prostredí backend používa `STRAVA_PROXY` a integrované Windows poverenia; hodnotu možno zmeniť podľa lokálnej siete.
+Prístupový a obnovovací token sa po OAuth uložia iba do Windows Credential Managera pre službu `strava`, takže reštart backendu pripojenie nepreruší. Na firemnom Windows prostredí backend používa `STRAVA_PROXY` a integrované Windows poverenia; hodnotu možno zmeniť podľa lokálnej siete.
 
 ## Databáza a vyhľadávanie
 
