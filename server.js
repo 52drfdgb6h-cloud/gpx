@@ -25,6 +25,7 @@ const pythonCommand = process.env.PYTHON || "py";
 const credentials = credentialRequest("get-client");
 let token = credentialRequest("get-token");
 databaseRequest("init");
+databaseRequest("repair-text");
 let importJob = null;
 let routeImportJob = null;
 
@@ -38,10 +39,27 @@ function credentialRequest(operation, payload) {
 function databaseRequest(operation, payload, routeId) {
   const processArgs = [databaseWrapperPath, operation];
   if (routeId !== undefined) processArgs.push(String(routeId));
-  const result = spawnSync(pythonCommand, processArgs, { input: payload ? JSON.stringify(payload) : undefined, encoding: "utf8", windowsHide: true, maxBuffer: 50 * 1024 * 1024 });
+  const result = spawnSync(pythonCommand, processArgs, { input: payload ? JSON.stringify(payload) : undefined, encoding: "utf8", windowsHide: true });
   if (result.error) throw new Error(`PostgreSQL wrapper sa nedá spustiť: ${result.error.message}`);
   if (result.status !== 0) throw new Error(result.stderr.trim() || "PostgreSQL wrapper zlyhal.");
   return result.stdout.trim() ? JSON.parse(result.stdout) : null;
+}
+
+function databaseRequestAsync(operation, payload, routeId) {
+  return new Promise((resolve, reject) => {
+    const processArgs = [databaseWrapperPath, operation];
+    if (routeId !== undefined) processArgs.push(String(routeId));
+    const process = spawn(pythonCommand, processArgs, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    let output = ""; let error = "";
+    process.stdout.on("data", (chunk) => { output += chunk; });
+    process.stderr.on("data", (chunk) => { error += chunk; });
+    process.on("error", (spawnError) => reject(new Error(`PostgreSQL wrapper sa nedá spustiť: ${spawnError.message}`)));
+    process.on("close", (code) => {
+      if (code !== 0) return reject(new Error(error.trim() || "PostgreSQL wrapper zlyhal."));
+      try { resolve(output.trim() ? JSON.parse(output) : null); } catch { reject(new Error("PostgreSQL wrapper vrátil neplatnú odpoveď.")); }
+    });
+    process.stdin.end(payload ? JSON.stringify(payload) : undefined);
+  });
 }
 
 function readJson(request) {
@@ -210,7 +228,7 @@ async function importAthleteRoutes(job) {
         contentHash: routeHash(`strava-route:${summary.id}`)
       };
       route.routeFingerprint = routeHash(JSON.stringify({ title: route.title, points: route.points.map((point) => [point.lat, point.lon]) }));
-      const saved = databaseRequest("save", { type: "planned", route });
+      const saved = await databaseRequestAsync("save", { type: "planned", route });
       if (saved.saved) job.imported += 1;
       else job.duplicates += 1;
     } catch (error) { job.skipped += 1; job.errors.push(error.message); }
@@ -284,14 +302,19 @@ function startRouteImportJob() {
 http.createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host}`);
   try {
-    if (requestUrl.pathname === "/api/routes" && request.method === "GET") return sendJson(response, 200, databaseRequest("list"));
+    if (requestUrl.pathname === "/api/routes" && request.method === "GET") return sendJson(response, 200, await databaseRequestAsync("list"));
+    if (requestUrl.pathname === "/api/routes/nearby" && request.method === "GET") {
+      const result = await databaseRequestAsync("nearby", { lat: requestUrl.searchParams.get("lat"), lon: requestUrl.searchParams.get("lon"), radiusKm: requestUrl.searchParams.get("radiusKm") });
+      return sendJson(response, 200, result);
+    }
+    if (requestUrl.pathname === "/api/routes/search" && request.method === "GET") return sendJson(response, 200, await databaseRequestAsync("search", { query: requestUrl.searchParams.get("query") }));
     if (requestUrl.pathname === "/api/routes" && request.method === "POST") {
-      const result = databaseRequest("save", await readJson(request));
+      const result = await databaseRequestAsync("save", await readJson(request));
       return sendJson(response, result.saved ? 201 : 200, result);
     }
     const routeDeleteMatch = requestUrl.pathname.match(/^\/api\/routes\/(\d+)$/);
     if (routeDeleteMatch && request.method === "DELETE") {
-      const result = databaseRequest("delete", null, routeDeleteMatch[1]);
+      const result = await databaseRequestAsync("delete", null, routeDeleteMatch[1]);
       return sendJson(response, result.deleted ? 200 : 404, result);
     }
     if (requestUrl.pathname === "/api/strava/status") return sendJson(response, 200, { connected: Boolean(token), configured: true });

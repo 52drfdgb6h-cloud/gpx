@@ -1,3 +1,6 @@
+.city-search-choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.city-choice { min-height: 31px; max-width: 100%; padding: 5px 9px; overflow: hidden; border: 1px solid #9acdbd; border-radius: 3px; color: #0c624e; background: #e7f4ed; cursor: pointer; font-family: "Trebuchet MS", sans-serif; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.city-choice:hover, .city-choice:focus-visible { border-color: var(--green); color: #fff; background: var(--green); outline: 0; }
 :root {
   --ink: #173330;
   --muted: #6d7c75;

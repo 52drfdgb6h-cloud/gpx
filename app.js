@@ -11,6 +11,7 @@ const archiveCount = document.querySelector("#archive-count");
 const citySearchForm = document.querySelector("#city-search-form");
 const citySearch = document.querySelector("#city-search");
 const citySearchResult = document.querySelector("#city-search-result");
+const citySearchChoices = document.querySelector("#city-search-choices");
 const comparisonSection = document.querySelector("#comparison-section");
 const comparisonResults = document.querySelector("#comparison-results");
 const comparisonCount = document.querySelector("#comparison-count");
@@ -20,26 +21,17 @@ let matchingRouteIds = null;
 const selectedActualRouteIds = new Set();
 let comparisonSort = { key: "activityDate", direction: "desc" };
 const offlineCities = { malacky: { name: "Malacky", lat: 48.4365, lon: 17.0219 } };
+const europeBoundingBox = "-25,34,45,72";
 
 function setStatus(message) { statusMessage.textContent = message; }
 function setImportMessage(message, isWarning = false) { importMessage.textContent = message; importMessage.classList.toggle("is-warning", isWarning); importMessage.hidden = false; }
-
-function openDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("trasy-gpx", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("routes", { keyPath: "id", autoIncrement: true });
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+function normalizeSearchText(value) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("sk-SK"); }
 
 async function saveRoute(type, route) {
-  const database = await openDatabase();
-  await new Promise((resolve, reject) => {
-    const request = database.transaction("routes", "readwrite").objectStore("routes").add({ ...route, type, savedAt: new Date().toISOString() });
-    request.onsuccess = resolve; request.onerror = () => reject(request.error);
-  });
-  database.close();
+  const response = await fetch("/api/routes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, route }) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Trasu sa nepodarilo uložiť do PostgreSQL.");
+  return result;
 }
 
 async function hashContent(content) {
@@ -51,25 +43,12 @@ function createRouteFingerprint(route) {
   return JSON.stringify({ title: route.title, points: route.points.map((point) => [point.lat, point.lon, point.time, point.heartRate]) });
 }
 
-async function hasStoredDuplicate(contentHash, routeFingerprint) {
-  const database = await openDatabase();
-  const exists = await new Promise((resolve, reject) => {
-    const request = database.transaction("routes").objectStore("routes").getAll();
-    request.onsuccess = () => resolve(request.result.some((route) => route.contentHash === contentHash || route.routeFingerprint === routeFingerprint || createRouteFingerprint(route) === routeFingerprint)); request.onerror = () => reject(request.error);
-  });
-  database.close();
-  return exists;
-}
-
 async function deleteStoredRoute(route) {
   if (!window.confirm(`Naozaj chceš VYMAZAŤ aktivitu „${route.title}“?`)) return;
   try {
-    const database = await openDatabase();
-    await new Promise((resolve, reject) => {
-      const request = database.transaction("routes", "readwrite").objectStore("routes").delete(route.id);
-      request.onsuccess = resolve; request.onerror = () => reject(request.error);
-    });
-    database.close();
+    const response = await fetch(`/api/routes/${route.id}`, { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Trasu sa nepodarilo vymazať z PostgreSQL.");
     selectedActualRouteIds.delete(route.id); matchingRouteIds?.delete(route.id);
     const mapRouteIndex = mapRoutes.findIndex((mapRoute) => mapRoute.id === route.id);
     if (mapRouteIndex !== -1) { mapRoutes.splice(mapRouteIndex, 1); drawRoutes(); }
@@ -79,19 +58,28 @@ async function deleteStoredRoute(route) {
 
 async function loadStoredRoutes() {
   try {
-    const database = await openDatabase();
-    storedRoutes = await new Promise((resolve, reject) => {
-      const request = database.transaction("routes").objectStore("routes").getAll();
-      request.onsuccess = () => resolve(request.result.sort((first, second) => second.id - first.id)); request.onerror = () => reject(request.error);
-    });
-    database.close(); renderStoredRoutes();
-  } catch (error) { setStatus("Databázu trás sa nepodarilo otvoriť."); }
+    const response = await fetch("/api/routes");
+    const routes = await response.json();
+    if (!response.ok) throw new Error(routes.error || "Databázu trás sa nepodarilo načítať.");
+    storedRoutes = routes; renderStoredRoutes();
+  } catch (error) { setStatus(error.message); }
+}
+
+async function searchStoredRoutes() {
+  const query = routeSearch.value.trim();
+  if (!query) { storedRoutes = []; matchingRouteIds = null; renderStoredRoutes(); return; }
+  try {
+    const response = await fetch(`/api/routes/search?query=${encodeURIComponent(query)}`);
+    const routes = await response.json();
+    if (!response.ok) throw new Error(routes.error || "Trasy podľa názvu sa nepodarilo načítať z PostgreSQL.");
+    storedRoutes = routes; matchingRouteIds = null; renderStoredRoutes();
+  } catch (error) { setStatus(error.message); }
 }
 
 function renderStoredRoutes() {
-  const searchTerm = routeSearch.value.trim().toLocaleLowerCase("sk-SK");
+  const searchTerm = normalizeSearchText(routeSearch.value.trim());
   const hasSearch = Boolean(searchTerm || matchingRouteIds);
-  const visibleRoutes = storedRoutes.filter((route) => (route.type !== "actual" || hasSearch || activeFilter === "actual") && (activeFilter === "all" || route.type === activeFilter) && route.title.toLocaleLowerCase("sk-SK").includes(searchTerm) && (!matchingRouteIds || matchingRouteIds.has(route.id)));
+  const visibleRoutes = storedRoutes.filter((route) => (route.type !== "actual" || hasSearch || activeFilter === "actual") && (activeFilter === "all" || route.type === activeFilter) && normalizeSearchText(`${route.title} ${route.fileName || ""}`).includes(searchTerm) && (!matchingRouteIds || matchingRouteIds.has(route.id)));
   archiveCount.textContent = `${storedRoutes.length} ${storedRoutes.length === 1 ? "trasa" : storedRoutes.length < 5 ? "trasy" : "trás"}`;
   routeResults.replaceChildren();
   if (!visibleRoutes.length) { routeResults.innerHTML = `<li class="empty-results">${storedRoutes.length ? "Pre uskutočnené trasy zadaj názov alebo vyhľadaj mesto. Žiadna trasa nezodpovedá aktuálnemu vyhľadávaniu." : "Databáza je zatiaľ prázdna. Každý nový import sa sem uloží."}</li>`; return; }
@@ -171,24 +159,48 @@ async function findRoutesInCity(event) {
   const city = citySearch.value.trim();
   if (!city) return;
   const submitButton = citySearchForm.querySelector("button");
-  submitButton.disabled = true; matchingRouteIds = null; citySearchResult.hidden = false; citySearchResult.textContent = `Hľadám mesto ${city}...`; renderStoredRoutes();
+  submitButton.disabled = true; matchingRouteIds = null; citySearchChoices.hidden = true; citySearchChoices.replaceChildren(); citySearchResult.hidden = false; citySearchResult.textContent = `Hľadám mesto ${city}...`; renderStoredRoutes();
   try {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=sk&q=${encodeURIComponent(city)}`);
+    const response = await fetch(`https://photon.komoot.io/api/?limit=20&bbox=${europeBoundingBox}&q=${encodeURIComponent(city)}`);
     if (!response.ok) throw new Error("Služba pre vyhľadanie mesta nie je momentálne dostupná.");
-    const [place] = await response.json();
-    if (!place) throw new Error(`Mesto „${city}“ sa na Slovensku nenašlo.`);
-    showCityMatches({ name: place.display_name.split(",")[0], lat: Number(place.lat), lon: Number(place.lon) });
+    const result = await response.json();
+    const normalizedCity = normalizeSearchText(city);
+    const places = result.features.filter((feature) => feature.properties.type === "city").map((feature) => ({
+      name: feature.properties.name,
+      country: feature.properties.country,
+      lat: feature.geometry.coordinates[1],
+      lon: feature.geometry.coordinates[0]
+    })).filter((place) => place.name && place.country && normalizeSearchText(place.name).includes(normalizedCity));
+    if (!places.length) throw new Error(`Mesto „${city}“ sa v Európe nenašlo.`);
+    showCityChoices(places);
   } catch (error) {
     const offlineCity = offlineCities[city.toLocaleLowerCase("sk-SK")];
-    if (offlineCity) { showCityMatches(offlineCity, true); }
+    if (offlineCity) { await showCityMatches(offlineCity, true); }
     else { citySearchResult.textContent = `${error.message} Skontroluj pripojenie a skús znova.`; }
   }
   finally { submitButton.disabled = false; }
 }
 
-function showCityMatches(city, isOffline = false) {
+function showCityChoices(places) {
+  const uniquePlaces = [...new Map(places.map((place) => [`${place.name}|${place.country}`, place])).values()];
+  citySearchResult.textContent = uniquePlaces.length === 1 ? "Nájdené mesto. Vyber ho pre vyhľadanie trás." : `Nájdených miest: ${uniquePlaces.length}. Vyber mesto pre vyhľadanie trás.`;
+  citySearchChoices.replaceChildren(...uniquePlaces.map((place) => {
+    const { name, country } = place;
+    const button = document.createElement("button");
+    button.className = "city-choice"; button.type = "button"; button.role = "option"; button.textContent = `${name} / ${country}`;
+    button.addEventListener("click", async () => { citySearchChoices.hidden = true; await showCityMatches({ name: `${name} / ${country}`, lat: place.lat, lon: place.lon }); });
+    return button;
+  }));
+  citySearchChoices.hidden = false;
+}
+
+async function showCityMatches(city, isOffline = false) {
   const maximumDistanceKm = 2.5;
-  const matches = storedRoutes.filter((route) => route.points.some((point) => haversineDistance(point, city) <= maximumDistanceKm));
+  citySearchResult.hidden = false; citySearchResult.textContent = `Hľadám trasy pri meste ${city.name}...`;
+  const response = await fetch(`/api/routes/nearby?lat=${encodeURIComponent(city.lat)}&lon=${encodeURIComponent(city.lon)}&radiusKm=${maximumDistanceKm}`);
+  const matches = await response.json();
+  if (!response.ok) throw new Error(matches.error || "Trasy pre mesto sa nepodarilo načítať z PostgreSQL.");
+  storedRoutes = matches;
   matchingRouteIds = new Set(matches.map((route) => route.id));
   const fallbackNote = isOffline ? " Použitá je lokálna poloha mesta." : "";
   citySearchResult.textContent = matches.length ? `Mesto ${city.name} pretína ${matches.length} ${matches.length === 1 ? "uložená trasa" : "uložené trasy"}; kontrolované body sú do ${maximumDistanceKm.toLocaleString("sk-SK")} km od stredu mesta.${fallbackNote}` : `V žiadnej uloženej trase nebol bod do ${maximumDistanceKm.toLocaleString("sk-SK")} km od stredu mesta ${city.name}.${fallbackNote}`;
@@ -240,9 +252,12 @@ async function importFile(type, file) {
   try {
     const content = await file.text(); const contentHash = await hashContent(content);
     const parsedRoute = parseGpx(content, file.name.replace(/\.gpx$/i, "")); const routeFingerprint = createRouteFingerprint(parsedRoute);
-    if (await hasStoredDuplicate(contentHash, routeFingerprint)) { const message = `GPX ${file.name} už bol importnutý.`; setImportMessage(message, true); setStatus(message); return; }
     const routeToSave = { ...parsedRoute, contentHash, routeFingerprint, fileName: file.name, type };
-    await saveRoute(type, routeToSave); const message = `GPX ${file.name} bol importnutý.`; setImportMessage(message); setStatus(message); await loadStoredRoutes();
+    const result = await saveRoute(type, routeToSave);
+    const message = result.saved ? `GPX ${file.name} bol importnutý.` : `GPX ${file.name} už bol importnutý.`;
+    const routeToDisplay = result.saved ? { ...routeToSave, id: result.route.id } : result.route;
+    storedRoutes = [routeToDisplay]; routeSearch.value = routeToDisplay.title; matchingRouteIds = null;
+    setImportMessage(message, !result.saved); setStatus(message); renderStoredRoutes();
   }
   catch (error) { const message = `Import sa nepodaril: ${error.message}`; setImportMessage(message, true); setStatus(message); }
 }
@@ -275,12 +290,11 @@ async function importStravaActivities() {
     if (!resultResponse.ok) throw new Error(result.error || "Strava import zlyhal.");
     let saved = 0;
     for (const [index, route] of result.activities.entries()) {
-      setImportMessage(`IndexedDB: ukladám ${index + 1} z ${result.activities.length} GPS aktivít (${saved} nových).`);
+      setImportMessage(`PostgreSQL: ukladám ${index + 1} z ${result.activities.length} GPS aktivít (${saved} nových).`);
       const routeFingerprint = createRouteFingerprint(route);
       const contentHash = await hashContent(`strava:${route.stravaActivityId}`);
-      if (await hasStoredDuplicate(contentHash, routeFingerprint)) continue;
-      await saveRoute("actual", { ...route, contentHash, routeFingerprint, source: "strava" });
-      saved += 1;
+      const savedRoute = await saveRoute("actual", { ...route, contentHash, routeFingerprint, source: "strava" });
+      if (savedRoute.saved) saved += 1;
       if ((index + 1) % 20 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
     await loadStoredRoutes();
@@ -332,14 +346,13 @@ document.querySelector("#fit-routes").addEventListener("click", drawRoutes);
 document.querySelector("#strava-import").addEventListener("click", importStravaActivities);
 document.querySelector("#strava-routes-import").addEventListener("click", importStravaRoutes);
 document.querySelector("#reset-comparison").addEventListener("click", () => { mapRoutes.length = 0; drawRoutes(); renderStoredRoutes(); setStatus("Porovnanie bolo resetované."); });
-routeSearch.addEventListener("input", renderStoredRoutes);
+routeSearch.addEventListener("input", searchStoredRoutes);
 citySearchForm.addEventListener("submit", findRoutesInCity);
-citySearch.addEventListener("input", () => { if (!citySearch.value.trim() && matchingRouteIds) { matchingRouteIds = null; citySearchResult.hidden = true; renderStoredRoutes(); } });
+citySearch.addEventListener("input", () => { citySearchChoices.hidden = true; citySearchChoices.replaceChildren(); if (!citySearch.value.trim() && matchingRouteIds) { matchingRouteIds = null; citySearchResult.hidden = true; renderStoredRoutes(); } });
 document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => { activeFilter = button.dataset.filter; document.querySelectorAll("[data-filter]").forEach((filterButton) => filterButton.classList.toggle("is-active", filterButton === button)); renderStoredRoutes(); }));
 document.querySelectorAll("[data-sort]").forEach((button) => button.addEventListener("click", () => { const key = button.dataset.sort; comparisonSort = { key, direction: comparisonSort.key === key && comparisonSort.direction === "asc" ? "desc" : "asc" }; renderComparison(); }));
 window.addEventListener("resize", drawRoutes);
 drawRoutes();
-loadStoredRoutes();
 const urlParameters = new URLSearchParams(window.location.search);
 if (urlParameters.get("strava") === "connected") {
   const nextImport = urlParameters.get("next");
